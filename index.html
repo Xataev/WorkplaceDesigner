@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+
+        <title>Babylon.js sample code</title>
+
+        <!-- Babylon.js -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.6.2/dat.gui.min.js"></script>
+        <script src="https://assets.babylonjs.com/generated/Assets.js"></script>
+        <script src="https://preview.babylonjs.com/ammo.js"></script>
+        <script src="https://preview.babylonjs.com/cannon.js"></script>
+        <script src="https://preview.babylonjs.com/Oimo.js"></script>
+        <script src="https://preview.babylonjs.com/earcut.min.js"></script>
+        <script src="https://preview.babylonjs.com/babylon.js"></script>
+        <script src="https://preview.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
+        <script src="https://preview.babylonjs.com/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js"></script>
+        <script src="https://preview.babylonjs.com/postProcessesLibrary/babylonjs.postProcess.min.js"></script>
+        <script src="https://preview.babylonjs.com/loaders/babylonjs.loaders.js"></script>
+        <script src="https://preview.babylonjs.com/serializers/babylonjs.serializers.min.js"></script>
+        <script src="https://preview.babylonjs.com/gui/babylon.gui.min.js"></script>
+        <script src="https://preview.babylonjs.com/inspector/babylon.inspector.bundle.js"></script>
+
+        <style>
+            html, body {
+                overflow: hidden;
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+
+            #renderCanvas {
+                width: 100%;
+                height: 100%;
+                touch-action: none;
+            }
+        </style>
+    </head>
+<body>
+    <canvas id="renderCanvas"></canvas>
+    <script>
+        var canvas = document.getElementById("renderCanvas");
+
+        var startRenderLoop = function (engine, canvas) {
+            engine.runRenderLoop(function () {
+                if (sceneToRender && sceneToRender.activeCamera) {
+                    sceneToRender.render();
+                }
+            });
+        }
+
+        var engine = null;
+        var scene = null;
+        var sceneToRender = null;
+        var createDefaultEngine = function() { return new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true,  disableWebGL2Support: false}); };
+        
+        var createScene = function () {
+            var scene = new BABYLON.Scene(engine)
+            var camera = new BABYLON.ArcRotateCamera("Camera", -Math.PI / 2, Math.PI / 4, 90, BABYLON.Vector3.Zero(), scene)
+            camera.attachControl(canvas, true)
+        
+            var sphere = BABYLON.MeshBuilder.CreateSphere("sphere", { diameter: 1.5 }, scene)
+            scene.removeMesh(sphere)
+            sphere.material = new BABYLON.StandardMaterial("mat", scene)
+        
+            var N = 70
+            var size = 44
+            var range = 5
+            var maxLights = sphere.material.maxSimultaneousLights
+            
+            var spheres = []
+            var lights = []
+            var lightSpheres = []
+            var rand = (a, b) => a + Math.random() * (b - a)
+        
+        
+            for (var i = 0; i < N; i++) {
+                var clone = sphere.clone("")
+                clone.position.copyFromFloats(rand(-size, size), rand(-size, size), rand(-size, size))
+                var light = new BABYLON.PointLight("light", new BABYLON.Vector3(0, 0, 0), scene)
+                light.position.x = clone.position.x + rand(-2,2)
+                light.position.y = clone.position.y + rand(-2,2)
+                light.position.z = clone.position.z + rand(-2,2)
+                var lightColor = new BABYLON.Color3(Math.random(), Math.random(), Math.random())
+                light.diffuse.copyFromFloats(rand(0.5, 1), rand(0.5, 1), rand(0.5, 1))
+                light.range = range
+                light.includedOnlyMeshes = []
+                light.phi = rand(0, 6.28)
+                var lightsphere = BABYLON.MeshBuilder.CreateSphere("sphere", { diameter: 0.5 }, scene)
+                lightsphere.position.copyFrom(light.position)
+                lightsphere.material = new BABYLON.StandardMaterial("mat", scene)
+                lightsphere.material.emissiveColor.copyFrom(light.diffuse)
+                spheres.push(clone)
+                lights.push(light)
+                lightSpheres.push(lightsphere)
+            }
+        
+            var spheresByX = []
+            var spheresByY = []
+            var spheresByZ = []
+            var add = (el, arr, i) => {
+                if (!arr[i]) arr[i] = []
+                arr[i].push(el)
+            }
+            spheres.forEach((sphere, i) => {
+                for (var j = -range; j < range; j++) {
+                    add(sphere, spheresByX, Math.round(j + sphere.position.x))
+                    add(sphere, spheresByY, Math.round(j + sphere.position.y))
+                    add(sphere, spheresByZ, Math.round(j + sphere.position.z))
+                }
+            })
+            var common = (arr1, arr2, arr3) => {
+                if (arr1.length * arr2.length * arr3.length === 0) return []
+                return arr1.filter(el => arr2.includes(el) && arr3.includes(el))
+            }
+        
+            var t = 0
+            scene.beforeRender = function () {
+                t += 0.02
+                lights.forEach((light, i) => {
+                    light.position.x += Math.sin(t + light.phi) / 12
+                    light.position.z += Math.sin(t + 5 * light.phi) / 12
+                    lightSpheres[i].position.copyFrom(light.position)
+                    var byx = spheresByX[Math.round(light.position.x)] || []
+                    var byy = spheresByY[Math.round(light.position.y)] || []
+                    var byz = spheresByZ[Math.round(light.position.z)] || []
+                    var inc = common(byx, byy, byz)
+                    if (inc.length > maxLights) {
+                        var res = []
+                        inc.forEach(el => {
+                            var d = BABYLON.Vector3.DistanceSquared(light.position, el.position)
+                            if (d < range) res.push({ el: el, d: d })
+                            if (res.length > maxLights) {
+                                res.sort((a, b) => a.d - b.d)
+                                res.length = maxLights
+                            }
+                        })
+                        inc = res.map(o => o.el)
+                    }
+                    light.includedOnlyMeshes = inc
+                })
+            }
+        
+            return scene
+        
+        }
+                window.initFunction = async function() {
+                    
+                    
+                    var asyncEngineCreation = async function() {
+                        try {
+                        return createDefaultEngine();
+                        } catch(e) {
+                        console.log("the available createEngine function failed. Creating the default engine instead");
+                        return createDefaultEngine();
+                        }
+                    }
+
+                    window.engine = await asyncEngineCreation();
+        if (!engine) throw 'engine should not be null.';
+        startRenderLoop(engine, canvas);
+        window.scene = createScene();};
+        initFunction().then(() => {sceneToRender = scene                    
+        });
+
+        // Resize
+        window.addEventListener("resize", function () {
+            engine.resize();
+        });
+    </script>
+</body>
+</html>
